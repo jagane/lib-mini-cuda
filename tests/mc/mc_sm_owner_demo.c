@@ -100,7 +100,8 @@ int main(int argc, char **argv)
 
   dir_label = args.h2d ? "H2D" : "D2H";
 
-  if (mc_init(&ctx) != MC_OK)
+  mc_init_params_t params = { .device = args.device };
+  if (mc_init_ex(&ctx, &params) != MC_OK)
   {
     fprintf(stderr, "mc_init failed\n");
     return 1;

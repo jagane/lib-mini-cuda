@@ -38,6 +38,8 @@ typedef enum {
 typedef struct {
     size_t n_bytes;   /* --size; bounds: > 0, <= 4 GiB, dword-aligned */
     int    iters;     /* --iters; bounds: 1 .. INT_MAX */
+    int    device;    /* --device; which /dev/nvidiaN to drive (>= 0).
+                       * Pass straight into mc_init_params_t.device. */
     int    h2d;       /* --h2d; should the xfer be host to device */
     int    wc;        /* --wc; allocate the host buffer write-combined
                        * (mc_malloc_host_wc).  Only meaningful with
@@ -54,6 +56,15 @@ typedef struct {
  * uniform usage output for free. */
 mc_test_args_status_t mc_test_parse_args(int argc, char **argv,
                                          mc_test_args_t *args);
+
+/* Pull an optional "--device N" out of argv for tests that do their own
+ * argument handling instead of mc_test_parse_args (one-shot tests and the
+ * ones with bespoke positional flags).  On success *device is set to the
+ * parsed index (left untouched if the flag is absent, so seed it with your
+ * default first), the "--device N" pair is compacted out of argv, and the
+ * new argc is returned so the caller's remaining parsing never sees it.
+ * Returns -1 on a missing/negative/malformed value (message to stderr). */
+int mc_test_extract_device(int argc, char **argv, int *device);
 
 /* Fill `n_dwords` dwords starting at `buf` with `pattern`.  Caller-
  * checked: buf must be 4-byte-aligned and at least n_dwords * 4 bytes

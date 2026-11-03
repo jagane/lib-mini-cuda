@@ -148,7 +148,8 @@ typedef enum {
 /* Opens /dev/nvidiactl and first verifies that the loaded driver exactly
  * matches the private RM/UVM ABI targeted by this build.  MC_EVERSION is
  * returned before any RM object is allocated if it does not.  On a match,
- * opens /dev/nvidia0 and /dev/nvidia-uvm, reserves the VA pool, and brings up
+ * opens the selected /dev/nvidia<N> (nvidia0 for plain mc_init; see
+ * mc_init_params_t.device) and /dev/nvidia-uvm, reserves the VA pool, and brings up
  * the UVM, DMA, and compute channels.  Returns MC_OK on success and stores an
  * opaque context pointer in *out_ctx.  On failure returns a status code
  * (details go to stderr) and *out_ctx is left NULL. */
@@ -193,6 +194,13 @@ typedef struct {
      * query with mc_feature_supported() afterwards.  Zero means
      * MC_FEATURES_ALL, so a zeroed struct behaves like mc_init. */
     uint64_t features;
+
+    /* Which GPU to drive, as the "/dev/nvidia<device>" minor index.  0 is
+     * the first card, so a zeroed struct behaves like mc_init and targets
+     * /dev/nvidia0.  On a host with several cards, pass the index of the one
+     * you want; mc_init_ex binds the whole context (RM device/subdevice, UVM
+     * registration, and every allocation) to that single card. */
+    int device;
 } mc_init_params_t;
 
 /* Whether `feature` is available on this context.  False either because the

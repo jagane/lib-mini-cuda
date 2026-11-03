@@ -30,14 +30,21 @@
 
 #include <mc/mc.h>
 #include <mc/mc_experimental.h>
+#include "mc_test_helpers.h"
 
-int main(void)
+int main(int argc, char **argv)
 {
   mc_ctx_t           *ctx     = NULL;
   volatile uint32_t  *cell_cpu = NULL;
   uint64_t            cell_gpu_va = 0;
+  int                 device  = 0;
 
-  if (mc_init(&ctx) != MC_OK || ctx == NULL)
+  argc = mc_test_extract_device(argc, argv, &device);
+  if (argc < 0)
+    return EXIT_FAILURE;
+
+  mc_init_params_t params = { .device = device };
+  if (mc_init_ex(&ctx, &params) != MC_OK || ctx == NULL)
   {
     fprintf(stderr, "FAIL: mc_init returned non-zero\n");
     return EXIT_FAILURE;

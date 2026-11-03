@@ -323,9 +323,9 @@ static NvU64 mc_va_space_alloc_scratch_coh(mc_ctx_t *ctx, mc_va_space_t *vas,
   if (size == 0) return 0;
 
   h_mem = want_wc
-            ? rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+            ? rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                     ctx->h_device, size, NULL, &cpu)
-            : rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+            : rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                  ctx->h_device, size, NULL, &cpu);
   if (!h_mem || cpu == NULL) return 0;
 

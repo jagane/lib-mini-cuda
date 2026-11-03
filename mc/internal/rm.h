@@ -35,16 +35,16 @@ NvHandle rm_alloc_vidmem(int ctl_fd, NvHandle root, NvHandle device,
 int      rm_register_client_fd(int ctl_fd, int dev_fd);
 /* Cached (write-back) host memory — the default, and what every buffer a
  * user program reads should use. */
-NvHandle rm_alloc_sysmem_at(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_alloc_sysmem_at(int ctl_fd, const char *dev_path, NvHandle root,
                             NvHandle device, NvU64 size, void *want_va,
                             void **out_cpu_va);
 /* Write-combined host memory — control plane only (pushbuffer, GPFIFO,
  * USERD, semaphores, QMD/CB0/SASS).  Host-write, GPU-read; do not use for
  * anything the host reads back. */
-NvHandle rm_alloc_sysmem_wc_at(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_alloc_sysmem_wc_at(int ctl_fd, const char *dev_path, NvHandle root,
                                NvHandle device, NvU64 size, void *want_va,
                                void **out_cpu_va);
-NvHandle rm_register_user_memory(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_register_user_memory(int ctl_fd, const char *dev_path, NvHandle root,
                                  NvHandle device, void *page_base,
                                  NvU64 page_covered_size);
 /* Allocate a vidmem region and ALSO produce a host-visible BAR1
@@ -105,7 +105,7 @@ int      rm_get_classlist(int ctl_fd, NvHandle h_client, NvHandle h_device,
 void     rm_perf_boost(int ctl_fd, NvHandle client, NvHandle subdevice);
 
 NvHandle rm_alloc_root(int ctl_fd);
-NvHandle rm_alloc_device(int ctl_fd, NvHandle root);
+NvHandle rm_alloc_device(int ctl_fd, NvHandle root, NvU32 device_id);
 NvHandle rm_alloc_subdevice(int ctl_fd, NvHandle root, NvHandle device);
 NvHandle rm_alloc_tsg(int ctl_fd, const mc_arch_desc_t *arch,
                       NvHandle root, NvHandle device,

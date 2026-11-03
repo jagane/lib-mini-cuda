@@ -175,6 +175,7 @@ static void usage(const char *prog)
           "  --alignment SZ  align each sample's malloc-backed pointer.\n"
           "                  K/M/G suffixes accepted. Default: 0.\n"
           "  --iters N       samples per phase. Default: 30.\n"
+          "  --device N      which GPU to drive (/dev/nvidiaN). Default: 0.\n"
           "  -h, --help      show this message.\n"
           "\n"
           "mc is initialized and a 1-page registration is warmed up\n"
@@ -602,6 +603,13 @@ int main(int argc, char **argv)
   mc_ctx_t *ctx = NULL;
   uint64_t  pages;
   size_t    i;
+  int       device = 0;
+
+  /* Pull --device out before the bench's own parser, which rejects unknown
+   * flags. */
+  argc = mc_test_extract_device(argc, argv, &device);
+  if (argc < 0)
+    return 2;
 
   if (!parse_args(argc, argv, &opts))
   {
@@ -609,7 +617,8 @@ int main(int argc, char **argv)
     return 2;
   }
 
-  if (mc_init(&ctx) != MC_OK)
+  mc_init_params_t params = { .device = device };
+  if (mc_init_ex(&ctx, &params) != MC_OK)
   {
     fprintf(stderr, "mc_init failed\n");
     return 3;

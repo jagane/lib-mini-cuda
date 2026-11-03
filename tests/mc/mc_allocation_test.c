@@ -120,8 +120,14 @@ int main(int argc, char **argv)
     { .vt_1 = MC_VAS_FB_CARRIER, .vt_2 = MC_VAS_FB_CARRIER },
   };
   int t;
+  int device = 0;
 
-  if (mc_init(&ctx) != MC_OK)
+  argc = mc_test_extract_device(argc, argv, &device);
+  if (argc < 0)
+    return 2;
+
+  mc_init_params_t params = { .device = device };
+  if (mc_init_ex(&ctx, &params) != MC_OK)
   {
     fprintf(stderr, "mc_init failed\n");
     return 1;

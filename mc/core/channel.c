@@ -104,7 +104,7 @@ static int mc_channel_alloc_resource(mc_ctx_t *ctx, mc_va_space_kind_t kind,
 
   if (!want_vidmem)
   {
-    *out_h_mem = rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+    *out_h_mem = rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                     ctx->h_device, size, NULL, out_cpu_ptr);
   }
   else
@@ -115,7 +115,7 @@ static int mc_channel_alloc_resource(mc_ctx_t *ctx, mc_va_space_kind_t kind,
      * GPU VA, which is unrelated to where the host BAR1 mmap lands).
      * This is the same shape the UVM channel already uses for its own
      * GPFIFO+USERD, which is the placement measured working on GA100. */
-    *out_h_mem = rm_alloc_vidmem_bar1_at(ctx->ctl_fd, MC_DEVICE_DEV_PATH,
+    *out_h_mem = rm_alloc_vidmem_bar1_at(ctx->ctl_fd, ctx->dev_path,
                                          ctx->h_client, ctx->h_device,
                                          size, NULL, out_cpu_ptr);
   }
@@ -437,7 +437,7 @@ static int mc_compute_module_init(mc_ctx_t *ctx, mc_vas_t slot,
    * the kernel completion semaphore fires, while the same kernel's BAR1
    * doorbell store is the proven working path.
    */
-  mod->h_scratch_mem = rm_alloc_vidmem_bar1_at(ctx->ctl_fd, MC_DEVICE_DEV_PATH,
+  mod->h_scratch_mem = rm_alloc_vidmem_bar1_at(ctx->ctl_fd, ctx->dev_path,
                                                ctx->h_client, ctx->h_device,
                                                MC_GPFIFO_USERD_SIZE, NULL,
                                                &scratch_cpu_ptr);
@@ -625,7 +625,7 @@ int mc_uvm_channel_init(mc_ctx_t *ctx, NvU32 lce_engine_type)
 
   pb_direct = va_pool_reserve(MC_PB_SIZE, "pushbuffer");
   if (pb_direct == NULL) return -1;
-  ch->h_pb_mem = rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+  ch->h_pb_mem = rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                     ctx->h_device, MC_PB_SIZE, pb_direct,
                                     &pb_direct);
   if (!ch->h_pb_mem) return -1;
@@ -640,7 +640,7 @@ int mc_uvm_channel_init(mc_ctx_t *ctx, NvU32 lce_engine_type)
    * ID also keeps the release behind the data. */
   sema_direct = va_pool_reserve(MC_SEMA_SIZE, "sema");
   if (sema_direct == NULL) return -1;
-  ch->h_sema_mem = rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+  ch->h_sema_mem = rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                       ctx->h_device, MC_SEMA_SIZE, sema_direct,
                                       &sema_direct);
   if (!ch->h_sema_mem) return -1;
@@ -657,7 +657,7 @@ int mc_uvm_channel_init(mc_ctx_t *ctx, NvU32 lce_engine_type)
 
   ex->gpfifo_userd_cpu = va_pool_reserve(MC_GPFIFO_USERD_SIZE, "gpfifo_userd");
   if (ex->gpfifo_userd_cpu == NULL) return -1;
-  ex->gpfifo_userd_cpu = rm_map_memory_at(ctx->ctl_fd, MC_DEVICE_DEV_PATH,
+  ex->gpfifo_userd_cpu = rm_map_memory_at(ctx->ctl_fd, ctx->dev_path,
                                      ctx->h_client, ctx->h_device,
                                      ex->h_gpfifo_userd_mem, 0,
                                      MC_GPFIFO_USERD_SIZE,

@@ -16,7 +16,8 @@
  * completion, which is exactly what the release semaphore reports.
  *
  * Build: `make mc_dbell_demo` from the repository root.
- * Run:   sudo ./bin/mc_dbell_demo [TOKEN]   (default token = 0xDEADBEEF)
+ * Run:   sudo ./bin/mc_dbell_demo [--device N] [TOKEN]
+ *        (default token = 0xDEADBEEF, default device = 0)
  *
  * Exit codes: 0 = ring submitted + sema fired, 1 = init failure,
  *             2 = ring failure, 3 = bad CLI.
@@ -30,16 +31,24 @@
 
 #include <mc/mc.h>
 #include <mc/mc_experimental.h>
+#include "mc_test_helpers.h"
 
 int main(int argc, char **argv)
 {
-  mc_ctx_t   *ctx   = NULL;
-  uint32_t    token = 0xDEADBEEFu;
+  mc_ctx_t   *ctx    = NULL;
+  uint32_t    token  = 0xDEADBEEFu;
+  int         device = 0;
   mc_status_t st;
+
+  /* Pull --device out first, so the TOKEN positional logic below is
+   * unchanged whether or not the flag was given. */
+  argc = mc_test_extract_device(argc, argv, &device);
+  if (argc < 0)
+    return 3;
 
   if (argc > 2)
   {
-    fprintf(stderr, "usage: %s [TOKEN]\n", argv[0]);
+    fprintf(stderr, "usage: %s [--device N] [TOKEN]\n", argv[0]);
     return 3;
   }
   if (argc == 2)
@@ -54,7 +63,8 @@ int main(int argc, char **argv)
     token = (uint32_t)v;
   }
 
-  if (mc_init(&ctx) != MC_OK)
+  mc_init_params_t params = { .device = device };
+  if (mc_init_ex(&ctx, &params) != MC_OK)
   {
     fprintf(stderr, "mc_init failed\n");
     return 1;

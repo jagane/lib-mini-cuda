@@ -60,15 +60,32 @@ static int parse_int_value(const char *s, long *out)
   return 1;
 }
 
+/* Parse a non-negative device index.  Returns 1 on success, 0 otherwise
+ * (empty, non-numeric, negative, or trailing garbage all rejected). */
+static int parse_device_value(const char *s, long *out)
+{
+  char *end;
+  long  v;
+
+  if (s == NULL || *s == '\0') return 0;
+  errno = 0;
+  v = strtol(s, &end, 0);
+  if (errno != 0 || end == s || *end != '\0' || v < 0) return 0;
+  *out = v;
+  return 1;
+}
+
 static void print_usage(const char *prog)
 {
   printf(
-      "usage: %s [--size SIZE] [--iters N] [--h2d] [--help]\n"
+      "usage: %s [--size SIZE] [--iters N] [--device N] [--h2d] [--help]\n"
       "\n"
       "  --size SIZE   Transfer size; K/M/G suffixes accepted.  Must be\n"
       "                > 0, dword-aligned, <= 4 GiB.\n"
       "  --iters N     Number of iterations (1 <= N <= %d).  Tests that\n"
       "                don't iterate ignore this field.\n"
+      "  --device N    Which GPU to drive (/dev/nvidiaN, N >= 0).  Defaults\n"
+      "                to 0, the first card.\n"
       "  --h2d         Run the timed transfer host->device instead of the\n"
       "                default device->host.  Tests that aren't directional\n"
       "                ignore this field.\n"
@@ -132,6 +149,18 @@ mc_test_args_status_t mc_test_parse_args(int argc, char **argv,
       i++;
       continue;
     }
+    if (!strcmp(argv[i], "--device") && i + 1 < argc)
+    {
+      if (!parse_device_value(argv[i + 1], &it))
+      {
+        fprintf(stderr, "%s: bad --device '%s' (want a non-negative index)\n",
+                argv[0], argv[i + 1]);
+        return MC_TEST_ARGS_ERROR;
+      }
+      args->device = (int)it;
+      i++;
+      continue;
+    }
     if (!strcmp(argv[i], "--h2d"))
     {
       args->h2d = 1;
@@ -146,6 +175,40 @@ mc_test_args_status_t mc_test_parse_args(int argc, char **argv,
     return MC_TEST_ARGS_ERROR;
   }
   return MC_TEST_ARGS_OK;
+}
+
+int mc_test_extract_device(int argc, char **argv, int *device)
+{
+  int i, w;
+
+  for (i = 1; i < argc; ++i)
+  {
+    if (strcmp(argv[i], "--device") != 0)
+      continue;
+
+    if (i + 1 >= argc)
+    {
+      fprintf(stderr, "%s: --device needs an index\n", argv[0]);
+      return -1;
+    }
+    {
+      long v;
+      if (!parse_device_value(argv[i + 1], &v))
+      {
+        fprintf(stderr, "%s: bad --device '%s' (want a non-negative index)\n",
+                argv[0], argv[i + 1]);
+        return -1;
+      }
+      if (device) *device = (int)v;
+    }
+
+    /* Compact "--device N" out so the caller's own parsing never sees it. */
+    for (w = i; w + 2 < argc; ++w)
+      argv[w] = argv[w + 2];
+    return argc - 2;
+  }
+
+  return argc;
 }
 
 void mc_test_seed_pattern(uint32_t *buf, size_t n_dwords, uint32_t pattern)

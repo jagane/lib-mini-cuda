@@ -86,9 +86,22 @@ mc_status_t mc_init_ex(mc_ctx_t **out_ctx, const mc_init_params_t *params)
   if (out_ctx == NULL) return MC_EINVAL;
   *out_ctx = NULL;
 
+  /* Which card: default to 0 (/dev/nvidia0), matching plain mc_init and a
+   * zeroed params struct.  A negative index is a caller error -- it would
+   * otherwise format into a nonsensical node path. */
+  int device_index = (params != NULL) ? params->device : 0;
+  if (device_index < 0)
+  {
+    ERROR_LOG("mc_init_ex: invalid device index %d", device_index);
+    return MC_EINVAL;
+  }
+
   ctx = calloc(1, sizeof(*ctx));
   if (ctx == NULL) { ERROR_LOG("calloc ctx"); return MC_EALLOC; }
   ctx->ctl_fd = ctx->dev_fd = ctx->uvm_fd = -1;
+  ctx->device_index = device_index;
+  snprintf(ctx->dev_path, sizeof(ctx->dev_path), MC_DEVICE_DEV_PATH_FMT,
+           device_index);
 
   /* Open only the control device first.  A private ABI mismatch must be
    * rejected before /dev/nvidia0 is opened, the VA pool is reserved, or any
@@ -118,10 +131,10 @@ mc_status_t mc_init_ex(mc_ctx_t **out_ctx, const mc_init_params_t *params)
     goto fail;
   }
 
-  ctx->dev_fd = open(MC_DEVICE_DEV_PATH, O_RDWR | O_CLOEXEC);
+  ctx->dev_fd = open(ctx->dev_path, O_RDWR | O_CLOEXEC);
   if (ctx->dev_fd < 0)
   {
-    ERROR_LOG("open %s: %s", MC_DEVICE_DEV_PATH, strerror(errno));
+    ERROR_LOG("open %s: %s", ctx->dev_path, strerror(errno));
     goto fail;
   }
   if (rm_register_client_fd(ctx->ctl_fd, ctx->dev_fd) != 0) goto fail;
@@ -131,7 +144,8 @@ mc_status_t mc_init_ex(mc_ctx_t **out_ctx, const mc_init_params_t *params)
 
   /* Root / device / subdevice. */
   ctx->h_client    = rm_alloc_root(ctx->ctl_fd);
-  ctx->h_device    = rm_alloc_device(ctx->ctl_fd, ctx->h_client);
+  ctx->h_device    = rm_alloc_device(ctx->ctl_fd, ctx->h_client,
+                                     (NvU32)device_index);
   ctx->h_subdevice = rm_alloc_subdevice(ctx->ctl_fd, ctx->h_client,
                                         ctx->h_device);
   if (!ctx->h_client || !ctx->h_device || !ctx->h_subdevice) goto fail;
@@ -194,7 +208,7 @@ mc_status_t mc_init_ex(mc_ctx_t **out_ctx, const mc_init_params_t *params)
                                                         ctx->h_subdevice,
                                                         false);
   if (!ctx->h_usermode_bar0) goto fail;
-  ctx->usermode_bar0_cpu = rm_map_memory(ctx->ctl_fd, MC_DEVICE_DEV_PATH,
+  ctx->usermode_bar0_cpu = rm_map_memory(ctx->ctl_fd, ctx->dev_path,
                                          ctx->h_client, ctx->h_subdevice,
                                          ctx->h_usermode_bar0, 0,
                                          MC_USERMODE_SIZE, 0);
@@ -208,7 +222,7 @@ mc_status_t mc_init_ex(mc_ctx_t **out_ctx, const mc_init_params_t *params)
                                                           ctx->h_subdevice,
                                                           true);
     if (!ctx->h_usermode_bar1) goto fail;
-    ctx->usermode_bar1_cpu = rm_map_memory(ctx->ctl_fd, MC_DEVICE_DEV_PATH,
+    ctx->usermode_bar1_cpu = rm_map_memory(ctx->ctl_fd, ctx->dev_path,
                                            ctx->h_client, ctx->h_subdevice,
                                            ctx->h_usermode_bar1, 0,
                                            MC_USERMODE_SIZE, 0);

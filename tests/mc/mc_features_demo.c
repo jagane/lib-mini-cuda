@@ -33,6 +33,7 @@
  * Exit codes: 0 PASS, 1 verification failed, 3 init failed.
  */
 #include <mc/mc.h>
+#include "mc_test_helpers.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -90,12 +91,13 @@ static void check_copy_works(mc_ctx_t *ctx, const char *what)
 /* Machine-readable capability report -- see the file comment for the format
  * contract.  Deliberately does no verification: a harness asking "what can
  * this GPU do?" must not fail for a reason unrelated to the question. */
-static int print_porcelain(void)
+static int print_porcelain(int device)
 {
-    mc_ctx_t *ctx = NULL;
-    int       f;
+    mc_ctx_t        *ctx = NULL;
+    mc_init_params_t params = { .device = device };
+    int              f;
 
-    if (mc_init(&ctx) != MC_OK) {
+    if (mc_init_ex(&ctx, &params) != MC_OK) {
         printf("mc_init failed\n");
         return 3;
     }
@@ -111,15 +113,22 @@ static int print_porcelain(void)
 int main(int argc, char **argv)
 {
     mc_ctx_t        *ctx = NULL;
-    mc_init_params_t basic = { .features = MC_FEATURES_BASIC };
+    int              device = 0;
     uint64_t         full_mask = 0;
     int              f;
 
+    argc = mc_test_extract_device(argc, argv, &device);
+    if (argc < 0)
+        return 2;
+
+    mc_init_params_t full  = { .device = device };
+    mc_init_params_t basic = { .features = MC_FEATURES_BASIC, .device = device };
+
     if (argc > 1 && strcmp(argv[1], "--porcelain") == 0)
-        return print_porcelain();
+        return print_porcelain(device);
 
     /* ── Full initialisation: whatever this GPU can do ──────────────── */
-    if (mc_init(&ctx) != MC_OK) {
+    if (mc_init_ex(&ctx, &full) != MC_OK) {
         printf("mc_init failed\n");
         return 3;
     }

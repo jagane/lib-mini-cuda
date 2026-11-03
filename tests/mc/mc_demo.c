@@ -81,7 +81,8 @@ int main(int argc, char **argv)
          args.wc ? " (wc host buffer)" : "");
 
   /* ── Library init ──────────────────────────────────────────────────── */
-  MC_CHECK(mc_init(&ctx));
+  mc_init_params_t params = { .device = args.device };
+  MC_CHECK(mc_init_ex(&ctx, &params));
 
   d_buf = mc_malloc_device(ctx, args.n_bytes, MC_VAS_UVM);
   h_buf = args.wc ? mc_malloc_host_wc(ctx, args.n_bytes, MC_VAS_UVM)

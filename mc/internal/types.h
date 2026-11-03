@@ -116,7 +116,14 @@
 /* Upper bound per single CE launch (LINE_LENGTH_IN is a 32-bit byte count). */
 #define MC_MAX_TRANSFER_SIZE    (0xFFFFFFFFULL)
 #define MC_CONTROL_DEV_PATH     "/dev/nvidiactl"
-#define MC_DEVICE_DEV_PATH      "/dev/nvidia0"
+/* The per-GPU device node is "/dev/nvidia<index>".  The control node above is
+ * shared across GPUs; only the device node selects which card RM binds the
+ * client to.  mc_init_ex builds ctx->dev_path from the requested index with
+ * MC_DEVICE_DEV_PATH_FMT, and every open of the device node routes through
+ * that string rather than a fixed "/dev/nvidia0". */
+#define MC_DEVICE_DEV_PATH_FMT  "/dev/nvidia%d"
+/* Enough for "/dev/nvidia" + a 32-bit index + NUL. */
+#define MC_DEV_PATH_MAX         32
 
 /* MC_VAS_COUNT is the size of mc_ctx.vas[] — one slot per public
  * mc_vas_t value (UVM, SYSMEM_CARRIER, FB_CARRIER). */
@@ -389,6 +396,14 @@ struct mc_ctx {
     int                            ctl_fd;
     int                            dev_fd;
     int                            uvm_fd;
+
+    /* The GPU this context drives, as selected at mc_init_ex time.
+     * device_index is the "/dev/nvidia<N>" minor; dev_path is the
+     * materialised node path, opened fresh wherever RM needs a device fd
+     * (the main dev_fd above, plus the per-allocation and per-mapping fds
+     * rm.c opens).  The control node is shared and stays MC_CONTROL_DEV_PATH. */
+    int                            device_index;
+    char                           dev_path[MC_DEV_PATH_MAX];
 
     /* Global RM object handles */
     NvHandle                       h_client;

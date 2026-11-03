@@ -324,8 +324,10 @@ int rm_register_client_fd(int ctl_fd, int dev_fd)
  *   COHERENCY   bits [15:12] = WRITE_COMBINE (2)
  *
  * Fd discipline (getting this wrong fails silently):
- *   - The ioctl goes to a REGISTER_FD'd nvidia0 fd (escape is marked
- *     NV_ACTUAL_DEVICE_ONLY in escape.c).
+ *   - The ioctl goes to a REGISTER_FD'd device fd (escape is marked
+ *     NV_ACTUAL_DEVICE_ONLY in escape.c).  That fd must be the selected
+ *     card's `dev_path` so the REGISTER_FD binds this client to the same
+ *     GPU the handle hierarchy names.
  *   - p.fd (the alloc fd) must be nvidiactl, because rm_create_mmap_
  *     context uses nv_get_ctl_state() to register the kernel mmap
  *     context.  We therefore open two fresh fds per allocation.
@@ -334,7 +336,8 @@ int rm_register_client_fd(int ctl_fd, int dev_fd)
  * is the libcuda pattern used to anchor the CPU alias inside the VA
  * pool (Paper F1 invariant: GPU VA == CPU VA).
  */
-static NvHandle rm_alloc_sysmem_coh_at(int ctl_fd, int dev_fd, NvHandle root,
+static NvHandle rm_alloc_sysmem_coh_at(int ctl_fd, const char *dev_path,
+                                   NvHandle root,
                                    NvHandle device, NvU64 size, void *want_addr,
                                    NvU32 coherency, void **out_cpu_ptr)
 {
@@ -343,9 +346,6 @@ static NvHandle rm_alloc_sysmem_coh_at(int ctl_fd, int dev_fd, NvHandle root,
   void                              *addr;
   int                                mmap_flags;
   long                               r;
-
-  (void)dev_fd; /* kept in the signature for symmetry with the other
-                 * rm_* wrappers, which do route through the device fd */
 
   p.params.hRoot         = root;
   p.params.hObjectParent = device;
@@ -356,7 +356,7 @@ static NvHandle rm_alloc_sysmem_coh_at(int ctl_fd, int dev_fd, NvHandle root,
   p.params.limit = size - 1;
 
   alloc_fd = open(MC_CONTROL_DEV_PATH, O_RDWR | O_CLOEXEC);
-  ioctl_fd = open(MC_DEVICE_DEV_PATH, O_RDWR | O_CLOEXEC);
+  ioctl_fd = open(dev_path, O_RDWR | O_CLOEXEC);
   if (alloc_fd < 0 || ioctl_fd < 0)
   {
     ERROR_LOG("rm_alloc_sysmem_at: open fds: %s", strerror(errno));
@@ -424,11 +424,11 @@ static NvHandle rm_alloc_sysmem_coh_at(int ctl_fd, int dev_fd, NvHandle root,
  * CACHED / WRITE_THROUGH / WRITE_PROTECT / WRITE_BACK onto one internal
  * NV_MEMORY_CACHED, so the two are indistinguishable past that point.)
  */
-NvHandle rm_alloc_sysmem_at(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_alloc_sysmem_at(int ctl_fd, const char *dev_path, NvHandle root,
                                    NvHandle device, NvU64 size, void *want_addr,
                                    void **out_cpu_ptr)
 {
-  return rm_alloc_sysmem_coh_at(ctl_fd, dev_fd, root, device, size, want_addr,
+  return rm_alloc_sysmem_coh_at(ctl_fd, dev_path, root, device, size, want_addr,
                                 NVOS02_FLAGS_COHERENCY_CACHED, out_cpu_ptr);
 }
 
@@ -444,11 +444,11 @@ NvHandle rm_alloc_sysmem_at(int ctl_fd, int dev_fd, NvHandle root,
  * Do not reach for this for user data.  Anything the host reads back
  * belongs in rm_alloc_sysmem_at.
  */
-NvHandle rm_alloc_sysmem_wc_at(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_alloc_sysmem_wc_at(int ctl_fd, const char *dev_path, NvHandle root,
                                       NvHandle device, NvU64 size, void *want_addr,
                                       void **out_cpu_ptr)
 {
-  return rm_alloc_sysmem_coh_at(ctl_fd, dev_fd, root, device, size, want_addr,
+  return rm_alloc_sysmem_coh_at(ctl_fd, dev_path, root, device, size, want_addr,
                                 NVOS02_FLAGS_COHERENCY_WRITE_COMBINE,
                                 out_cpu_ptr);
 }
@@ -464,15 +464,13 @@ NvHandle rm_alloc_sysmem_wc_at(int ctl_fd, int dev_fd, NvHandle root,
  * covering the user's [ptr, ptr+n) interval.  UVM will later map sub-ranges
  * of this descriptor at CPU VA == GPU VA with offsets from this page_base.
  */
-NvHandle rm_register_user_memory(int ctl_fd, int dev_fd, NvHandle root,
+NvHandle rm_register_user_memory(int ctl_fd, const char *dev_path, NvHandle root,
                                  NvHandle device, void *page_base,
                                  NvU64 page_covered_size)
 {
   nv_ioctl_nvos02_parameters_with_fd p = {};
   int                                alloc_fd, ioctl_fd;
   long                               r;
-
-  (void)dev_fd; /* kept for signature symmetry with rm_alloc_sysmem_at */
 
   if (page_base == NULL || page_covered_size == 0)
     return 0;
@@ -489,7 +487,7 @@ NvHandle rm_register_user_memory(int ctl_fd, int dev_fd, NvHandle root,
   p.params.limit   = page_covered_size - 1;
 
   alloc_fd = open(MC_CONTROL_DEV_PATH, O_RDWR | O_CLOEXEC);
-  ioctl_fd = open(MC_DEVICE_DEV_PATH, O_RDWR | O_CLOEXEC);
+  ioctl_fd = open(dev_path, O_RDWR | O_CLOEXEC);
   if (alloc_fd < 0 || ioctl_fd < 0)
   {
     ERROR_LOG("rm_register_user_memory: open fds: %s", strerror(errno));
@@ -1101,10 +1099,15 @@ NvHandle rm_alloc_root(int ctl_fd)
   return h_client;
 }
 
-/* Allocate the NV01_DEVICE_0 handle (deviceId=0 — our only GPU). */
-NvHandle rm_alloc_device(int ctl_fd, NvHandle root)
+/* Allocate the NV01_DEVICE_0 handle for GPU `device_id`.  deviceId is the
+ * sole selector of which physical GPU the RM handle hierarchy binds to:
+ * deviceConstruct resolves the OBJGPU from it alone (gpumgrGetPrimaryForDevice),
+ * independent of which device fd the alloc rode in on.  It must match the
+ * "/dev/nvidia<N>" node the context holds open, both so the process-wide
+ * accessibility check passes and so BAR mmaps through that fd are accepted. */
+NvHandle rm_alloc_device(int ctl_fd, NvHandle root, NvU32 device_id)
 {
-  NV0080_ALLOC_PARAMETERS dev_ap = { .deviceId = 0 };
+  NV0080_ALLOC_PARAMETERS dev_ap = { .deviceId = device_id };
   return rm_alloc(ctl_fd, root, root, NV01_DEVICE_0, &dev_ap);
 }
 

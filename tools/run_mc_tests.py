@@ -88,8 +88,14 @@ class Cell:
 _RE_FEATURES = re.compile(r"^features:(.*)$", re.MULTILINE)
 
 
-def query_features(bin_dir: Path, verbose: bool) -> set[str] | None:
-    """Ask mc_features_demo --porcelain what this GPU offers.
+def device_args(device: int) -> list[str]:
+    """The "--device N" pair to append to a tool invocation, or nothing for
+    device 0 so default runs invoke the tools exactly as before."""
+    return ["--device", str(device)] if device else []
+
+
+def query_features(bin_dir: Path, device: int, verbose: bool) -> set[str] | None:
+    """Ask mc_features_demo --porcelain what the selected GPU offers.
 
     Returns None if the query could not be run, which is deliberately
     different from an empty set: "we do not know" must not silently skip the
@@ -100,7 +106,7 @@ def query_features(bin_dir: Path, verbose: bool) -> set[str] | None:
     if not exe.exists():
         return None
     try:
-        proc = subprocess.run([str(exe), "--porcelain"],
+        proc = subprocess.run([str(exe), "--porcelain", *device_args(device)],
                               capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"warning: feature query failed to run ({exc}); "
@@ -338,7 +344,7 @@ def _peak_bandwidth(out: str) -> float | None:
     return max(matches) if matches else None
 
 
-def run_cell(cell: Cell, bin_dir: Path, verbose: bool) -> Result:
+def run_cell(cell: Cell, bin_dir: Path, device: int, verbose: bool) -> Result:
     bin_path = bin_dir / cell.binary
     if not bin_path.exists():
         return Result(cell, rc=127, duration_s=0.0, stdout="",
@@ -346,6 +352,7 @@ def run_cell(cell: Cell, bin_dir: Path, verbose: bool) -> Result:
                       note="missing")
 
     cmd: list[str] = [str(bin_path)]
+    cmd.extend(device_args(device))
     cmd.extend(cell.args)
 
     if verbose:
@@ -423,9 +430,17 @@ def main(argv: list[str]) -> int:
                     help="also run iters=600 to cross the GPFIFO 512 wrap")
     ap.add_argument("--filter", default=None,
                     help="only run tests whose binary basename matches this regex")
+    ap.add_argument("--device", type=int, default=0, metavar="N",
+                    help="which GPU to drive (/dev/nvidiaN); passed to the "
+                         "feature query and every cell (default: 0)")
     ap.add_argument("--verbose", action="store_true",
                     help="print every command before running it")
     args = ap.parse_args(argv)
+
+    if args.device < 0:
+        print(f"error: --device must be >= 0, got {args.device}",
+              file=sys.stderr)
+        return 2
 
     bin_dir = Path(args.bin_dir) if args.bin_dir else repo_root() / "bin"
     if not bin_dir.is_dir():
@@ -444,9 +459,10 @@ def main(argv: list[str]) -> int:
 
     # What this GPU can actually do.  None means the query failed, in which
     # case nothing is pre-skipped and every cell runs as it always did.
-    available = query_features(bin_dir, verbose=args.verbose)
+    available = query_features(bin_dir, args.device, verbose=args.verbose)
 
     print(f"running {len(cells)} cells from {bin_dir}")
+    print(f"  gpu: /dev/nvidia{args.device}")
     if args.quick:   print("  (quick: one size per test)")
     if args.stress:  print("  (stress: includes iters=600 wrap test)")
     if available is not None:
@@ -463,7 +479,8 @@ def main(argv: list[str]) -> int:
                 cell, rc=0, duration_s=0.0, stdout="", stderr="",
                 skip_reason="needs " + ", ".join(missing)))
         else:
-            results.append(run_cell(cell, bin_dir, verbose=args.verbose))
+            results.append(run_cell(cell, bin_dir, args.device,
+                                    verbose=args.verbose))
         print(fmt_result(results[-1]), flush=True)
 
     # ── summary ──

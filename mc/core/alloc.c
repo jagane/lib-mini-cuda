@@ -283,9 +283,9 @@ static void *malloc_host_impl(mc_ctx_t *ctx, size_t n, mc_vas_t vas,
     cpu_va = va_pool_reserve((NvU64)n, "h_user");
     if (cpu_va == NULL) return NULL;
     h_mem = want_wc
-              ? rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+              ? rm_alloc_sysmem_wc_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                       ctx->h_device, (NvU64)n, cpu_va, &cpu_va)
-              : rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+              : rm_alloc_sysmem_at(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                    ctx->h_device, (NvU64)n, cpu_va, &cpu_va);
     if (!h_mem) return NULL;
     gpu_va = uvm_map_buffer_at(ctx->uvm_fd, ctx->dev_fd, ctx->h_client,
@@ -372,7 +372,7 @@ mc_status_t mc_host_register(mc_ctx_t *ctx, void *ptr, size_t n, mc_vas_t vas)
                                       &map_base, &map_size) != 0)
     return MC_EINVAL;
 
-  h_mem = rm_register_user_memory(ctx->ctl_fd, ctx->dev_fd, ctx->h_client,
+  h_mem = rm_register_user_memory(ctx->ctl_fd, ctx->dev_path, ctx->h_client,
                                   ctx->h_device,
                                   (void *)(uintptr_t)map_base, map_size);
   if (!h_mem)
