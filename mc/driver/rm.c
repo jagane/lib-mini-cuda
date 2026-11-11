@@ -31,6 +31,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+/* Driver-release configuration (tools/nvidia_conftest.sh, force-included by
+ * the Makefile).  Without it every MC_NV_HAVE_* test would read as 0. */
+#ifndef MC_NV_HAVE_CHANNEL_HANDLE_VASPACE
+#error "libmc must be compiled with the generated mc_nv_config.h (see Makefile)"
+#endif
+
 #include "nvos.h"
 #include "nv-ioctl.h"
 #include "nv-ioctl-numbers.h"
@@ -1175,7 +1181,8 @@ NvHandle rm_alloc_tsg(int ctl_fd, const mc_arch_desc_t *arch,
  *   - hVASpace and hHandleVASpace MUST be zero when the parent is a
  *     TSG — the channel inherits the TSG's VA space.  kernel_channel.c
  *     rejects non-zero channel-level VAS fields for TSG-parented
- *     channels.  We never set them.
+ *     channels.  We never set them.  hHandleVASpace exists only in
+ *     driver releases that have it (MC_NV_HAVE_CHANNEL_HANDLE_VASPACE).
  * gp_fifo_offset is the GPU VA of the GPFIFO ring (under UVM, equals
  * the CPU VA — Paper F1).  h_userd + userd_offset identify the
  * channel's USERD slot inside a caller-provided memory handle (the
@@ -1195,7 +1202,9 @@ NvHandle rm_alloc_channel(int ctl_fd, const mc_arch_desc_t *arch,
     .hUserdMemory[0] = h_userd,
     .userdOffset[0]  = userd_offset,
     .hVASpace        = 0,
+#if MC_NV_HAVE_CHANNEL_HANDLE_VASPACE
     .hHandleVASpace  = 0,
+#endif
   };
   return rm_alloc(ctl_fd, root, tsg, arch->cls.channel_gpfifo, &chan_params);
 }

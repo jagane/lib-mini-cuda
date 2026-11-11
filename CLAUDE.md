@@ -19,10 +19,18 @@ driver, captures, trace tools, and protocol notes.
   aperture, so no doorbell PTE, so no FB carrier and nothing SM-authored.
   Query with `mc_feature_supported()`; never assume from the driver version.
 - `third_party/open-gpu-kernel-modules` is pinned to the matching official
-  source. Do not silently build against another driver revision.
-- Private RM and UVM interfaces are version-specific. A new supported driver
-  version should update the pin, generated assumptions, tests, and release
-  documentation together.
+  source. Do not silently build against another driver revision: a different
+  `NVIDIA_SRC` release is refused unless `MC_ALLOW_UNTESTED_DRIVER=1` is given,
+  and then it warns.
+- Private RM and UVM interfaces are version-specific. libmc compiles against
+  the target release's own headers, so struct layouts follow the release. A
+  source-level difference between releases (a field one release has and
+  another lacks) is handled by a feature probe in `tools/nvidia_conftest.sh`
+  and an `#if MC_NV_HAVE_*` at the point of use, never by comparing version
+  numbers. Add one probe per difference; `make check-conftest` tests the
+  generator.
+- A new *verified* driver version still updates the pin, probes, tests, and
+  release documentation together.
 
 ## Implementation invariants
 

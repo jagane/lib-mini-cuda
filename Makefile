@@ -14,7 +14,7 @@
 #   make mc-all            — every tests/mc/*.c binary.
 #   make mc_demo           — libmc demo (no CUDA toolchain needed).
 #   make libmc             — library only.
-#   make check-nvidia-source — validate the pinned driver-source dependency.
+#   make check-nvidia-source — validate the driver-source dependency.
 #   make test-unit         — host-only unit tests (no GPU required).
 #   make help              — print this summary.
 #   make clean             — remove every produced artefact.
@@ -34,20 +34,28 @@ REPO_ROOT := $(CURDIR)
 include compat/nvidia.mk
 
 # libmc consumes private RM/UVM ABI definitions from the exact official
-# driver release it targets.  The submodule is the default; NVIDIA_SRC lets a
-# developer reuse another checkout of that same release without weakening the
-# version contract.
+# driver release it is built for.  The submodule -- the release this revision
+# is verified against, MC_NVIDIA_VERSION -- is the default.  NVIDIA_SRC may
+# point at another checkout of that release, or, with
+# MC_ALLOW_UNTESTED_DRIVER=1, at a different release: the build then targets
+# that release (see MC_NV_CONFIG below), and the runtime version check
+# requires it to be the one loaded.
 NVIDIA_SRC ?= $(REPO_ROOT)/third_party/open-gpu-kernel-modules
 NVIDIA_VERSION_MK := $(NVIDIA_SRC)/version.mk
+MC_ALLOW_UNTESTED_DRIVER ?= 0
 
 # ── Flags ──────────────────────────────────────────────────────────────────
 # Warnings on, but allow unused helpers: the sources keep a few reference
 # implementations around as documentation.
-# libmc talks to the driver directly, so it needs the pinned driver's SDK and
-# UVM headers.  MC_NVIDIA_DRIVER_VERSION is also compiled into the strict
-# runtime compatibility check performed before any RM object is allocated.
+# libmc talks to the driver directly, so it needs the target driver's SDK and
+# UVM headers.  tools/nvidia_conftest.sh probes them and writes MC_NV_CONFIG:
+# MC_NVIDIA_DRIVER_VERSION, compiled into the strict runtime compatibility
+# check performed before any RM object is allocated, and one MC_NV_HAVE_*
+# macro per source-level difference between driver releases.  It is
+# force-included, so everything compiled with MC_CPPFLAGS depends on it.
 CFLAGS       ?= -O2 -g -Wall -Wno-unused-function
-MC_CPPFLAGS  := -DMC_NVIDIA_DRIVER_VERSION=\"$(MC_NVIDIA_VERSION)\"
+MC_NV_CONFIG  = $(BUILD_DIR)/mc_nv_config.h
+MC_CPPFLAGS   = -include $(MC_NV_CONFIG)
 
 # Include roots.  -Imc/include exposes only the public <mc/mc.h>; -Imc is the
 # library-internal root, so a TU says #include "internal/types.h" or
@@ -188,6 +196,8 @@ UNIT_SRCS_mc_rm_version_test    := mc/driver/rm.c
 UNIT_WRAP_mc_lce_selection_test := ioctl
 UNIT_SRCS_mc_lce_selection_test := mc/driver/rm.c
 UNIT_WRAP_mc_init_version_test  := open ioctl close
+UNIT_WRAP_mc_channel_alloc_params_test := ioctl
+UNIT_SRCS_mc_channel_alloc_params_test := mc/driver/rm.c
 # Pure encoding test: links only the emitters, interposes nothing.
 # Pure encoding / pure data: link the backend (and what it pulls in) but
 # interpose nothing -- neither test issues an ioctl.
@@ -225,7 +235,7 @@ LIBS := $(LIBMC) $(LIBMC_REAL)
 
 .DEFAULT_GOAL := all
 .PHONY: all bins libs mc-all clean help libmc
-.PHONY: check-nvidia-source test-unit
+.PHONY: check-nvidia-source test-unit check-conftest mc-nv-force
 .PHONY: $(notdir $(BINS))
 
 all: $(BINS) $(LIBS)
@@ -239,11 +249,22 @@ $(foreach b,$(BINS),$(eval $(notdir $b): $b))
 libmc: $(LIBMC)
 # `|| exit $$?` — a bare `exit` would return the shell's last status rather
 # than the failing test's, which can mask a failure as success.
-test-unit: $(UNIT_TEST_BINS)
+test-unit: $(UNIT_TEST_BINS) check-conftest
 	@for test_bin in $(UNIT_TEST_BINS); do ./$$test_bin || exit $$?; done
 
-# Refuse to compile against a missing or different private driver ABI.  The
-# runtime repeats this check against the loaded nvidia.ko before initialization.
+# The probe generator, tested against synthetic driver trees (no GPU, no
+# second driver release, no network).
+check-conftest:
+	@bash tools/test_nvidia_conftest.sh $(CC)
+
+# Probed on every make (a few syntax-only compiles).  The header is rewritten,
+# and the library rebuilt, only when the driver tree changes.
+$(MC_NV_CONFIG): tools/nvidia_conftest.sh mc-nv-force | check-nvidia-source
+	@bash tools/nvidia_conftest.sh "$(NVIDIA_SRC)" $@ $(CC) $(SDK_INC)
+
+# Refuse to compile against a missing private driver ABI, or against a release
+# other than the verified one unless that is asked for explicitly.  The runtime
+# repeats the check against the loaded nvidia.ko before initialization.
 check-nvidia-source:
 	@if [ ! -f "$(NVIDIA_VERSION_MK)" ]; then \
 	  echo "ERROR: NVIDIA driver sources not found at $(NVIDIA_SRC)" >&2; \
@@ -254,9 +275,15 @@ check-nvidia-source:
 	@actual=$$(sed -n 's/^NVIDIA_VERSION[[:space:]]*=[[:space:]]*//p' \
 	                    "$(NVIDIA_VERSION_MK)" | head -n 1); \
 	if [ "$$actual" != "$(MC_NVIDIA_VERSION)" ]; then \
-	  echo "ERROR: libmc targets NVIDIA $(MC_NVIDIA_VERSION)," >&2; \
-	  echo "       but NVIDIA_SRC contains $${actual:-an unknown version}." >&2; \
-	  exit 1; \
+	  if [ "$(MC_ALLOW_UNTESTED_DRIVER)" = "1" ] && [ -n "$$actual" ]; then \
+	    echo "WARNING: building for NVIDIA $$actual; this revision is verified" >&2; \
+	    echo "         only against $(MC_NVIDIA_VERSION)." >&2; \
+	  else \
+	    echo "ERROR: libmc is verified against NVIDIA $(MC_NVIDIA_VERSION)," >&2; \
+	    echo "       but NVIDIA_SRC contains $${actual:-an unknown version}." >&2; \
+	    echo "       To build for that release anyway, add MC_ALLOW_UNTESTED_DRIVER=1." >&2; \
+	    exit 1; \
+	  fi; \
 	fi
 
 # ── Output directories (order-only prereqs so parallel builds don't race) ─
@@ -475,7 +502,7 @@ sm_owner: mc/arch/hopper/sm_owner_sass.h
 #                            Embeds arch/hopper/sm_owner_sass.h.
 # Per-TU compile.  Header prerequisites come from the generated .d files
 # (DEPFLAGS), so adding an internal header needs no Makefile edit.
-$(BUILD_DIR)/%.o: mc/%.c compat/nvidia.mk | $(BUILD_DIR) check-nvidia-source
+$(BUILD_DIR)/%.o: mc/%.c compat/nvidia.mk $(MC_NV_CONFIG) | $(BUILD_DIR)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(DEPFLAGS) $(MC_CPPFLAGS) $(MC_LIB_CPPFLAGS) \
 	    $(MC_LIB_CFLAGS) $(SDK_INC) $(MC_INC) -c -o $@ $<
@@ -497,8 +524,8 @@ $(LIBMC): $(LIBMC_REAL)
 # whole suite runs without a GPU, without root, and without /dev/nvidia*.
 # Adding tests/unit/foo.c is enough to get bin/foo built and run.
 .SECONDEXPANSION:
-bin/%: tests/unit/%.c $$(call unit_srcs,$$*) compat/nvidia.mk \
-       | bin check-nvidia-source
+bin/%: tests/unit/%.c $$(call unit_srcs,$$*) compat/nvidia.mk $(MC_NV_CONFIG) \
+       | bin
 	$(CC) $(CFLAGS) $(MC_CPPFLAGS) $(MC_LIB_CPPFLAGS) $(SDK_INC) $(MC_INC) \
 	    -o $@ $< $(call unit_srcs,$*) \
 	    $(foreach w,$(call unit_wrap,$*),-Wl,--wrap=$(w))
@@ -598,7 +625,8 @@ help:
 	@echo "  bins             build everything under bin/"
 	@echo "  libs             build everything under lib/"
 	@echo "  libmc            build $(LIBMC) — the mc library"
-	@echo "  check-nvidia-source  validate NVIDIA_SRC is driver $(MC_NVIDIA_VERSION)"
+	@echo "  check-nvidia-source  validate NVIDIA_SRC (verified release: $(MC_NVIDIA_VERSION))"
+	@echo "  check-conftest   test the driver feature-probe generator"
 	@echo "  test-unit        run host-only unit tests (auto-discovered)"
 	@echo "  check-arch-solo  build each MC_ARCHS backend on its own"
 	@echo "  check-abi        verify exported symbols match mc.h's MC_API set"
@@ -617,3 +645,4 @@ help:
 	@echo "  NVCC       CUDA compiler used only by sm_owner (default: $(NVCC))"
 	@echo "  CUOBJDUMP  SASS inspection tool (default: $(CUOBJDUMP))"
 	@echo "  NVIDIA_SRC matching driver tree (default: pinned submodule)"
+	@echo "  MC_ALLOW_UNTESTED_DRIVER  1 = allow an NVIDIA_SRC other than $(MC_NVIDIA_VERSION)"

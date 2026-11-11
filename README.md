@@ -106,6 +106,24 @@ integration demos requires root access to `/dev/nvidia0`, `/dev/nvidiactl`, and
 sudo ./bin/mc_demo
 ```
 
+### Other driver releases
+
+libmc compiles against the driver source of the release it will run on.
+`tools/nvidia_conftest.sh` probes that source for the few interface
+differences between releases and writes `build/mc_nv_config.h`, which every
+library file is compiled with. To build for a release other than the verified
+one, point `NVIDIA_SRC` at its official source and opt in:
+
+```sh
+git clone --depth 1 --branch 595.99.02 \
+  https://github.com/NVIDIA/open-gpu-kernel-modules.git ../ogkm-595.99.02
+make NVIDIA_SRC=../ogkm-595.99.02 MC_ALLOW_UNTESTED_DRIVER=1 libmc test-unit
+```
+
+The result runs only on that exact release (the runtime version check is
+unchanged), and it has not been verified on hardware by this revision unless
+the release is listed above.
+
 ## Layout
 
 - `mc/include/mc/mc.h` — the public header; the only one consumers include

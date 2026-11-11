@@ -197,7 +197,8 @@ cc -Imc/include myapp.c -Llib -lmc -Wl,-rpath,'$ORIGIN/../lib' -o bin/myapp
 Initialize the pinned official driver-source submodule, then from the repository
 root run `make libmc` or `make mc_demo` (see
 `tests/mc/mc_demo.c` for the full-featured demo).  `NVIDIA_SRC` may point at an
-existing checkout, but it must match this release's exact target driver.
+existing checkout of the verified driver release, or of another release with
+`MC_ALLOW_UNTESTED_DRIVER=1` (see the top-level README).
 
 For the SM-authored path, allocate carrier-VAS buffers (sysmem or
 FB) and pass `MC_XFER_SM`:
@@ -215,7 +216,8 @@ FB-carrier path) and `tests/mc/mc_sm_owner_demo.c`.
 
 ## Scope / restrictions
 
-- **Exact driver ABI.**  This release targets NVIDIA 610.43.02. `mc_init`
+- **Exact driver ABI.**  This release is verified against NVIDIA 610.43.02.
+  A build targets exactly one release (the one in `NVIDIA_SRC`), and `mc_init`
   returns `MC_EVERSION` before allocating RM objects when the loaded driver
   differs; private RM/UVM interfaces are not assumed compatible across
   releases.
